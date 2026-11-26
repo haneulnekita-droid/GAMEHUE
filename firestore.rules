@@ -69,7 +69,7 @@ service cloud.firestore {
           'huella7Commitment',
           'deviceType'
         ])
-        && data.participantCode is string && data.participantCode.size() >= 1 && data.participantCode.size() <= 50
+        && data.participantCode is string && data.participantCode.size() >= 1 && data.participantCode.size() <= 100
         && data.dateKey is string && data.dateKey.size() == 10 && data.dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$')
         && data.createdAt is timestamp && data.createdAt == request.time
         && isValidFrequency(data.huella1HabitTracker)
@@ -100,6 +100,14 @@ service cloud.firestore {
         && data.updatedAt is timestamp && data.updatedAt == request.time;
     }
 
+    function isValidPasscodeDoc(data) {
+      return data.keys().hasAll(['salt', 'hash', 'updatedAt'])
+        && data.keys().hasOnly(['salt', 'hash', 'updatedAt'])
+        && data.salt is string && data.salt.size() >= 16 && data.salt.size() <= 128
+        && data.hash is string && data.hash.size() >= 32 && data.hash.size() <= 256
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
     match /submissions/{submissionId} {
       allow get: if isAdmin() && isValidId(submissionId);
       allow list: if isAdmin();
@@ -115,6 +123,15 @@ service cloud.firestore {
       allow update: if isAdmin() && isValidId(configId) && isValidAppConfig(incoming())
         && incoming().diff(resource.data).affectedKeys().hasOnly(['spreadsheetId', 'spreadsheetUrl', 'spreadsheetTitle', 'updatedAt']);
       allow delete: if isAdmin() && isValidId(configId);
+    }
+
+    match /facilitatorSecurity/{docId} {
+      allow get: if isAdmin() && isValidId(docId);
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(docId) && isValidPasscodeDoc(incoming());
+      allow update: if isAdmin() && isValidId(docId) && isValidPasscodeDoc(incoming())
+        && incoming().diff(resource.data).affectedKeys().hasOnly(['salt', 'hash', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(docId);
     }
   }
 }

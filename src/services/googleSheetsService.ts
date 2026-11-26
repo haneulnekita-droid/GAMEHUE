@@ -6,7 +6,7 @@ const SHEET_DAILY_TITLE = 'Resumen por Día';
 
 const RESPONSE_HEADERS = [
   'ID Registro',
-  'Código Participante',
+  'Nombre y Apellido',
   'Día (YYYY-MM-DD)',
   'Fecha y Hora',
   'H1: Habit Tracker',
@@ -29,7 +29,7 @@ const RESPONSE_HEADERS = [
 const DAILY_HEADERS = [
   'Día (YYYY-MM-DD)',
   'Total Participantes',
-  'Códigos del Día',
+  'Participantes del Día',
   'Estrategia Favorita Más Elegida',
   'Dificultad Más Frecuente',
 ];

@@ -64,7 +64,7 @@ export function submissionToFlatObject(r: SubmissionRecord) {
   const { fecha, hora } = formatDateTimeParts(r.createdAtIso);
   return {
     'ID Registro': r.id,
-    'Código del Participante': r.participantCode,
+    'Nombre y Apellido': r.participantCode,
     'Día (YYYY-MM-DD)': r.dateKey,
     Fecha: fecha,
     Hora: hora,
@@ -91,7 +91,7 @@ export function downloadExcelWorkbook(records: SubmissionRecord[]) {
   const dailyRows = buildDailySummaries(records).map((day) => ({
     'Día (YYYY-MM-DD)': day.dateKey,
     'Total Participantes': day.count,
-    'Códigos de Participantes': day.codes.join(', '),
+    'Participantes del Día': day.codes.join(', '),
     'Estrategia Favorita Más Elegida': day.topFavorite,
     'Dificultad Más Frecuente': day.topObstacle,
   }));

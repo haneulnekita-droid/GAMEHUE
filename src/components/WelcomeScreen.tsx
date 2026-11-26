@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, KeyRound } from 'lucide-react';
+import { ArrowRight, User } from 'lucide-react';
 import { MascotCharacter } from './MascotCharacter';
 
 interface WelcomeScreenProps {
@@ -26,11 +26,11 @@ export function WelcomeScreen({ initialCode, onStart }: WelcomeScreenProps) {
     e.preventDefault();
     const cleaned = code.trim();
     if (!cleaned) {
-      setError('Escribe tu código de participante para empezar tu camino.');
+      setError('Escribe tu nombre y apellido para empezar tu camino.');
       return;
     }
-    if (cleaned.length > 50) {
-      setError('El código puede tener máximo 50 caracteres.');
+    if (cleaned.length > 100) {
+      setError('Tu nombre y apellido pueden tener máximo 100 caracteres.');
       return;
     }
     setError('');
@@ -104,10 +104,10 @@ export function WelcomeScreen({ initialCode, onStart }: WelcomeScreenProps) {
                   htmlFor="participant-code"
                   className="block text-sm font-bold text-[#3c2d57] mb-2"
                 >
-                  Ingresa tu código de participante para comenzar
+                  Escribe tu nombre y apellido para comenzar
                 </label>
                 <div className="relative">
-                  <KeyRound className="w-5 h-5 text-violet-500 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <User className="w-5 h-5 text-violet-500 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="participant-code"
                     type="text"
@@ -116,9 +116,9 @@ export function WelcomeScreen({ initialCode, onStart }: WelcomeScreenProps) {
                       setCode(e.target.value);
                       if (error) setError('');
                     }}
-                    placeholder="Ejemplo: P-015 o tu código asignado"
-                    maxLength={50}
-                    autoComplete="off"
+                    placeholder="Ejemplo: Camila Torres"
+                    maxLength={100}
+                    autoComplete="name"
                     className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-white border-2 border-violet-200 focus:border-violet-500 focus:outline-none text-base font-semibold text-[#2e2344] placeholder:text-slate-400 transition-colors"
                   />
                 </div>

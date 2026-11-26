@@ -95,7 +95,7 @@ export function FinalGoalScreen({
               className="w-36 h-36 sm:w-44 sm:h-44 rounded-3xl object-cover border-4 border-amber-200 shadow-lg"
             />
             <p className="mt-2 text-xs font-bold text-amber-800">
-              Medalla de Bienestar · Código {participantCode}
+              Medalla de Bienestar · {participantCode}
             </p>
           </motion.div>
         </div>

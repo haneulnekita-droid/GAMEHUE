@@ -25,8 +25,10 @@ import {
   ADMIN_EMAIL,
   deleteSubmissionRecord,
   getCachedWorkspaceToken,
+  hasCloudFacilitatorPasscode,
   loadLinkedSpreadsheetConfig,
   saveLinkedSpreadsheetConfig,
+  setupCloudFacilitatorPasscode,
   signInFirestoreAdmin,
   signInWorkspaceForSheets,
   signOutFirestoreAdmin,
@@ -34,6 +36,7 @@ import {
   subscribeFirestoreAdminAuth,
   subscribeSubmissions,
   subscribeWorkspaceAuth,
+  verifyCloudFacilitatorPasscode,
 } from '../firebase/config';
 import { buildDailySummaries, downloadCsvFile, downloadExcelWorkbook } from '../services/exportService';
 import { createAdventureSpreadsheet, syncSubmissionsToGoogleSheet } from '../services/googleSheetsService';
@@ -112,18 +115,19 @@ function buildDistribution(values: string[]) {
 }
 
 export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
-  // Server passcode gate state (token kept strictly in React memory)
-  const [authStatus, setAuthStatus] = useState<'loading' | 'needs-setup' | 'locked' | 'unlocked'>('loading');
-  const [bearerToken, setBearerToken] = useState<string | null>(null);
+  // Firestore Admin auth state
+  const [dbUser, setDbUser] = useState<User | null>(null);
+  const [dbAuthReady, setDbAuthReady] = useState(false);
+  const [dbAuthLoading, setDbAuthLoading] = useState(false);
+  const [dbError, setDbError] = useState('');
+  const [unauthorizedDomainHost, setUnauthorizedDomainHost] = useState<string | null>(null);
+
+  // Cloud-persisted passcode gate state (works identically on Vercel and AI Studio)
+  const [passcodeState, setPasscodeState] = useState<'checking' | 'needs-setup' | 'locked' | 'unlocked'>('checking');
   const [passcodeInput, setPasscodeInput] = useState('');
   const [confirmPasscodeInput, setConfirmPasscodeInput] = useState('');
   const [authError, setAuthError] = useState('');
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
-
-  // Firestore Admin auth state
-  const [dbUser, setDbUser] = useState<User | null>(null);
-  const [dbAuthLoading, setDbAuthLoading] = useState(false);
-  const [dbError, setDbError] = useState('');
 
   // Workspace Google Sheets auth state
   const [sheetsUser, setSheetsUser] = useState<User | null>(null);
@@ -143,28 +147,10 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [isConfirmRunning, setIsConfirmRunning] = useState(false);
 
-  // Check facilitator passcode status
-  useEffect(() => {
-    let mounted = true;
-    fetch('/api/facilitator/status')
-      .then((res) => res.json())
-      .then((data: { configured?: boolean }) => {
-        if (!mounted) return;
-        setAuthStatus(data.configured ? 'locked' : 'needs-setup');
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setAuthStatus('locked');
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  // Subscribe to Firebase Firestore Auth & Workspace OAuth
   useEffect(() => {
     const unsubDb = subscribeFirestoreAdminAuth((user) => {
       setDbUser(user);
+      setDbAuthReady(true);
     });
     const unsubWs = subscribeWorkspaceAuth(
       (user, token) => {
@@ -184,9 +170,35 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
   const isAuthorizedDbAdmin =
     Boolean(dbUser) && dbUser?.email === ADMIN_EMAIL && dbUser?.emailVerified === true;
 
-  // Subscribe to real-time submissions when unlocked AND authenticated as admin
+  // Check whether facilitator passcode is already set in Firestore once signed in as admin
   useEffect(() => {
-    if (authStatus !== 'unlocked' || !isAuthorizedDbAdmin) {
+    if (!dbAuthReady) return;
+    if (!isAuthorizedDbAdmin) {
+      setPasscodeState('locked');
+      return;
+    }
+
+    let cancelled = false;
+    setPasscodeState('checking');
+    hasCloudFacilitatorPasscode()
+      .then((exists) => {
+        if (cancelled) return;
+        setPasscodeState(exists ? 'locked' : 'needs-setup');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error(err);
+        setPasscodeState('needs-setup');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dbAuthReady, isAuthorizedDbAdmin]);
+
+  // Subscribe to real-time submissions when authenticated as admin AND passcode unlocked
+  useEffect(() => {
+    if (!isAuthorizedDbAdmin || passcodeState !== 'unlocked') {
       setRecords([]);
       return;
     }
@@ -199,7 +211,7 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
         if (cfg) setLinkedSheet(cfg);
       })
       .catch(() => {
-        // Ignore if not configured yet
+        // Ignore if no spreadsheet linked yet
       });
 
     const unsub = subscribeSubmissions(
@@ -209,15 +221,15 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
       },
       (err) => {
         console.error(err);
-        setDbError('No se pudieron cargar las respuestas de la nube. Verifica tu sesión de Google.');
+        setDbError(`No se pudieron cargar las respuestas (${err.message}).`);
         setLoadingRecords(false);
       }
     );
 
     return () => unsub();
-  }, [authStatus, isAuthorizedDbAdmin]);
+  }, [isAuthorizedDbAdmin, passcodeState]);
 
-  // Auto-sync to Google Sheets whenever new submissions arrive & user opted into live sync
+  // Auto-sync to Google Sheets when enabled
   useEffect(() => {
     if (!autoSyncEnabled || !sheetsToken || !linkedSheet?.spreadsheetId || records.length === 0) {
       return;
@@ -227,7 +239,9 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
       .then((res) => {
         if (cancelled) return;
         if (res.appendedCount > 0) {
-          setSyncStatus(`Sincronización automática: +${res.appendedCount} registro(s) nuevo(s) añadido(s) a tu Google Sheet.`);
+          setSyncStatus(
+            `Sincronización automática: +${res.appendedCount} registro(s) nuevo(s) añadido(s) a tu Google Sheet.`
+          );
         } else {
           setSyncStatus(`Hoja al día (${res.totalRows} registros totales).`);
         }
@@ -240,6 +254,34 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
       cancelled = true;
     };
   }, [autoSyncEnabled, sheetsToken, linkedSheet?.spreadsheetId, records]);
+
+  const handleDbGoogleSignIn = async () => {
+    setDbAuthLoading(true);
+    setDbError('');
+    setUnauthorizedDomainHost(null);
+    try {
+      const user = await signInFirestoreAdmin();
+      if (user.email !== ADMIN_EMAIL) {
+        setDbError(
+          `Iniciaste sesión como ${user.email}, pero solo ${ADMIN_EMAIL} tiene acceso a los resultados.`
+        );
+      }
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code ?? '';
+      if (code === 'auth/unauthorized-domain') {
+        setUnauthorizedDomainHost(window.location.hostname);
+        setDbError(
+          `Este dominio (${window.location.hostname}) aún no está autorizado en Firebase Authentication.`
+        );
+      } else if (code === 'auth/popup-blocked') {
+        setDbError('Tu navegador bloqueó la ventana de Google. Permite las ventanas emergentes e intenta de nuevo.');
+      } else {
+        setDbError('No se pudo iniciar sesión con Google. Intenta nuevamente.');
+      }
+    } finally {
+      setDbAuthLoading(false);
+    }
+  };
 
   const handleSetupPasscode = async (e: FormEvent) => {
     e.preventDefault();
@@ -255,28 +297,19 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
     setIsSubmittingAuth(true);
     setAuthError('');
     try {
-      const res = await fetch('/api/facilitator/setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ passcode: passcodeInput.trim() }),
-      });
-      const data = (await res.json()) as { token?: string; error?: string };
-      if (!res.ok || !data.token) {
-        setAuthError(data.error || 'No se pudo guardar la contraseña.');
-        return;
-      }
-      setBearerToken(data.token);
-      setAuthStatus('unlocked');
+      await setupCloudFacilitatorPasscode(passcodeInput.trim());
+      setPasscodeState('unlocked');
       setPasscodeInput('');
       setConfirmPasscodeInput('');
-    } catch {
-      setAuthError('Error de conexión con el servidor.');
+    } catch (err) {
+      console.error(err);
+      setAuthError('No se pudo guardar la contraseña en la nube. Intenta de nuevo.');
     } finally {
       setIsSubmittingAuth(false);
     }
   };
 
-  const handleLoginPasscode = async (e: FormEvent) => {
+  const handleVerifyPasscode = async (e: FormEvent) => {
     e.preventDefault();
     if (!passcodeInput.trim()) {
       setAuthError('Ingresa la contraseña del facilitador.');
@@ -285,39 +318,18 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
     setIsSubmittingAuth(true);
     setAuthError('');
     try {
-      const res = await fetch('/api/facilitator/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ passcode: passcodeInput.trim() }),
-      });
-      const data = (await res.json()) as { token?: string; error?: string };
-      if (!res.ok || !data.token) {
-        setAuthError(data.error || 'Contraseña incorrecta.');
+      const valid = await verifyCloudFacilitatorPasscode(passcodeInput.trim());
+      if (!valid) {
+        setAuthError('Contraseña incorrecta.');
         return;
       }
-      setBearerToken(data.token);
-      setAuthStatus('unlocked');
+      setPasscodeState('unlocked');
       setPasscodeInput('');
-    } catch {
-      setAuthError('Error de conexión con el servidor.');
-    } finally {
-      setIsSubmittingAuth(false);
-    }
-  };
-
-  const handleDbGoogleSignIn = async () => {
-    setDbAuthLoading(true);
-    setDbError('');
-    try {
-      const user = await signInFirestoreAdmin();
-      if (user.email !== ADMIN_EMAIL) {
-        setDbError(`Iniciaste sesión como ${user.email}, pero el acceso administrativo corresponde a ${ADMIN_EMAIL}.`);
-      }
     } catch (err) {
       console.error(err);
-      setDbError('No se pudo iniciar sesión con Google.');
+      setAuthError('Error al verificar la contraseña.');
     } finally {
-      setDbAuthLoading(false);
+      setIsSubmittingAuth(false);
     }
   };
 
@@ -328,8 +340,15 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
       setSheetsUser(user);
       setSheetsToken(accessToken);
       setSyncStatus(`Conectado a Google Sheets como ${user.email ?? 'tu cuenta'}.`);
-    } catch (err) {
-      setSyncStatus(err instanceof Error ? err.message : 'No se pudo conectar con Google Sheets.');
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code ?? '';
+      if (code === 'auth/unauthorized-domain') {
+        setSyncStatus(
+          `Para conectar Google Sheets desde ${window.location.hostname}, agrega ese dominio en Firebase Console (proyecto gen-lang-client-0625964269 -> Authentication -> Authorized domains). Mientras tanto puedes descargar Excel (.xlsx) directamente.`
+        );
+      } else {
+        setSyncStatus(err instanceof Error ? err.message : 'No se pudo conectar con Google Sheets.');
+      }
     }
   };
 
@@ -460,8 +479,8 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
     }
   };
 
-  // LOCKED / SETUP GATE
-  if (authStatus !== 'unlocked' || !bearerToken) {
+  // GATE 1: Google Sign-In as Facilitator (works on Vercel & AI Studio without Express backend)
+  if (!isAuthorizedDbAdmin) {
     return (
       <div className="max-w-lg mx-auto px-4 py-10">
         <div className="bg-white/95 border-2 border-violet-200 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
@@ -479,22 +498,109 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
 
           <div className="space-y-2">
             <h2 className="font-display text-2xl font-extrabold text-[#2e2344]">
-              {authStatus === 'needs-setup'
-                ? 'Configurar contraseña del facilitador'
-                : 'Panel Privado del Facilitador'}
+              Acceso Privado del Facilitador
             </h2>
             <p className="text-sm text-slate-600 leading-relaxed">
-              {authStatus === 'needs-setup'
-                ? 'Crea la contraseña inicial para proteger el acceso a las respuestas y la sincronización en la nube.'
-                : 'Ingresa la contraseña del facilitador para revisar estadísticas, respuestas por día y exportar resultados.'}
+              Inicia sesión con tu cuenta autorizada (<span className="font-semibold">{ADMIN_EMAIL}</span>) para desbloquear y consultar todas las respuestas guardadas en la nube desde cualquier dispositivo o desde Vercel.
             </p>
           </div>
 
-          {authStatus === 'loading' ? (
+          {!dbAuthReady ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="w-6 h-6 animate-spin text-violet-600" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <OfficialGoogleButton
+                label={dbAuthLoading ? 'Abriendo Google...' : 'Sign in with Google'}
+                onClick={handleDbGoogleSignIn}
+                disabled={dbAuthLoading}
+              />
+
+              {dbUser && dbUser.email !== ADMIN_EMAIL && (
+                <button
+                  type="button"
+                  onClick={() => signOutFirestoreAdmin()}
+                  className="block text-xs font-bold text-violet-700 hover:underline cursor-pointer"
+                >
+                  Cambiar cuenta (sesión actual: {dbUser.email})
+                </button>
+              )}
+
+              {dbError && (
+                <div className="rounded-2xl bg-rose-50 border border-rose-200 p-4 space-y-2.5 text-xs text-rose-800">
+                  <p className="font-bold">{dbError}</p>
+                  {unauthorizedDomainHost && (
+                    <div className="space-y-2 text-slate-700">
+                      <p>
+                        Como publicaste en <span className="font-mono-tabular font-bold">{unauthorizedDomainHost}</span>, debes autorizar ese dominio una sola vez en Firebase Console:
+                      </p>
+                      <ol className="list-decimal list-inside space-y-1">
+                        <li>Abre Authentication &rarr; Settings &rarr; Authorized domains</li>
+                        <li>Haz clic en <strong>Add domain</strong> y pega <span className="font-mono-tabular font-bold">{unauthorizedDomainHost}</span></li>
+                        <li>Recarga esta página e inicia sesión con Google</li>
+                      </ol>
+                      <a
+                        href="https://console.firebase.google.com/project/root-phalanx-cqmt3/authentication/settings"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-600 text-white font-bold hover:bg-violet-700"
+                      >
+                        <span>Abrir Firebase Authorized Domains</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // GATE 2: Cloud-stored Facilitator Passcode (persisted in Firestore /facilitatorSecurity/passcode)
+  if (passcodeState !== 'unlocked') {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-10">
+        <div className="bg-white/95 border-2 border-violet-200 rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={onExitPanel}
+              className="inline-flex items-center gap-2 text-sm font-bold text-violet-700 hover:text-violet-900 cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Volver al juego</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => signOutFirestoreAdmin()}
+              className="text-xs font-semibold text-slate-500 hover:text-slate-800 cursor-pointer"
+            >
+              Cerrar sesión ({dbUser?.email})
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            <h2 className="font-display text-2xl font-extrabold text-[#2e2344]">
+              {passcodeState === 'needs-setup'
+                ? 'Crea tu contraseña del panel'
+                : 'Contraseña del Facilitador'}
+            </h2>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              {passcodeState === 'needs-setup'
+                ? 'Esta contraseña se guarda cifrada en la nube para proteger tus resultados tanto aquí como en Vercel.'
+                : 'Ingresa la contraseña de tu panel para ver las respuestas y estadísticas.'}
+            </p>
+          </div>
+
+          {passcodeState === 'checking' ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-violet-600" />
             </div>
-          ) : authStatus === 'needs-setup' ? (
+          ) : passcodeState === 'needs-setup' ? (
             <form onSubmit={handleSetupPasscode} className="space-y-4">
               <div>
                 <label className="block text-sm font-bold text-[#2e2344] mb-1.5">
@@ -526,14 +632,14 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                 disabled={isSubmittingAuth}
                 className="w-full py-3.5 rounded-2xl bg-violet-600 hover:bg-violet-700 text-white font-bold cursor-pointer disabled:opacity-60"
               >
-                {isSubmittingAuth ? 'Guardando...' : 'Guardar contraseña y entrar'}
+                {isSubmittingAuth ? 'Guardando en la nube...' : 'Guardar contraseña y ver resultados'}
               </button>
             </form>
           ) : (
-            <form onSubmit={handleLoginPasscode} className="space-y-4">
+            <form onSubmit={handleVerifyPasscode} className="space-y-4">
               <div>
                 <label htmlFor="facilitator-pass" className="block text-sm font-bold text-[#2e2344] mb-1.5">
-                  Contraseña del facilitador
+                  Contraseña del panel
                 </label>
                 <div className="relative">
                   <KeyRound className="w-5 h-5 text-violet-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -553,7 +659,7 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                 disabled={isSubmittingAuth}
                 className="w-full py-3.5 rounded-2xl bg-violet-600 hover:bg-violet-700 text-white font-bold cursor-pointer disabled:opacity-60"
               >
-                {isSubmittingAuth ? 'Verificando...' : 'Ingresar al panel'}
+                {isSubmittingAuth ? 'Verificando...' : 'Ver resultados'}
               </button>
             </form>
           )}
@@ -577,7 +683,7 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
               <span>Volver a la aventura</span>
             </button>
             <span aria-hidden="true">·</span>
-            <span>Panel Privado del Facilitador</span>
+            <span>Panel Privado del Facilitador ({dbUser?.email})</span>
           </div>
           <h2 className="font-display text-2xl sm:text-3xl font-extrabold text-[#2e2344]">
             Resultados y Registro en la Nube
@@ -607,10 +713,7 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
 
           <button
             type="button"
-            onClick={() => {
-              setBearerToken(null);
-              setAuthStatus('locked');
-            }}
+            onClick={() => setPasscodeState('locked')}
             className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold cursor-pointer whitespace-nowrap"
           >
             <LogOut className="w-4 h-4" />
@@ -621,7 +724,6 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
 
       {/* Cloud Database & Google Sheets Sync Connections */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Card 1: Cloud Firestore Database */}
         <div className="bg-white/95 border border-violet-200 rounded-3xl p-5 shadow-sm space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -631,42 +733,26 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                   Base de Datos Centralizada
                 </h3>
                 <p className="text-xs text-slate-600">
-                  Recibe automáticamente las respuestas de todos los dispositivos.
+                  Recibe en vivo todas las respuestas de celulares, tablets y computadoras.
                 </p>
               </div>
             </div>
-            {isAuthorizedDbAdmin && (
-              <button
-                type="button"
-                onClick={() => signOutFirestoreAdmin()}
-                className="text-xs font-semibold text-slate-500 hover:text-slate-800 cursor-pointer whitespace-nowrap"
-              >
-                Cerrar sesión
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => signOutFirestoreAdmin()}
+              className="text-xs font-semibold text-slate-500 hover:text-slate-800 cursor-pointer whitespace-nowrap"
+            >
+              Cerrar sesión
+            </button>
           </div>
 
-          {!isAuthorizedDbAdmin ? (
-            <div className="pt-1 space-y-2.5">
-              <p className="text-sm text-slate-700">
-                Inicia sesión con tu cuenta autorizada (<span className="font-semibold">{ADMIN_EMAIL}</span>) para leer los registros en tiempo real.
-              </p>
-              <OfficialGoogleButton
-                label={dbAuthLoading ? 'Conectando...' : 'Sign in with Google'}
-                onClick={handleDbGoogleSignIn}
-                disabled={dbAuthLoading}
-              />
-              {dbError && <p className="text-xs font-bold text-rose-600">{dbError}</p>}
-            </div>
-          ) : (
-            <div className="flex items-center justify-between gap-2 pt-1 text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-2.5">
-              <span>Conectado en tiempo real como {dbUser?.email}</span>
-              <span className="font-mono-tabular font-bold">{records.length} registros</span>
-            </div>
-          )}
+          <div className="flex items-center justify-between gap-2 pt-1 text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-2.5">
+            <span>Conectado en tiempo real como {dbUser?.email}</span>
+            <span className="font-mono-tabular font-bold">{records.length} registros</span>
+          </div>
+          {dbError && <p className="text-xs font-bold text-rose-600">{dbError}</p>}
         </div>
 
-        {/* Card 2: Google Sheets Cloud Excel */}
         <div className="bg-white/95 border border-emerald-200 rounded-3xl p-5 shadow-sm space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -806,7 +892,7 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
               type="text"
               value={searchCode}
               onChange={(e) => setSearchCode(e.target.value)}
-              placeholder="Buscar código..."
+              placeholder="Buscar por nombre y apellido..."
               className="pl-9 pr-4 py-2 rounded-xl border border-violet-200 focus:border-violet-500 focus:outline-none text-sm bg-white"
             />
           </div>
@@ -871,7 +957,6 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
       {/* TAB: ANALYTICS & DAILY SUMMARY */}
       {activeTab === 'analytics' && (
         <div className="space-y-6">
-          {/* KPI Strip */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white/95 border border-violet-200 rounded-3xl p-5 shadow-sm">
               <p className="text-xs font-semibold text-slate-500">Participantes completados</p>
@@ -915,7 +1000,6 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
             </div>
           ) : (
             <>
-              {/* Daily Grouping Table */}
               <div className="bg-white/95 border border-violet-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="font-display text-xl font-bold text-[#2e2344]">
@@ -931,7 +1015,7 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                       <tr className="border-b border-violet-100 text-xs text-slate-500">
                         <th className="py-2.5 pr-4 font-semibold">Día</th>
                         <th className="py-2.5 pr-4 font-semibold">Participantes</th>
-                        <th className="py-2.5 pr-4 font-semibold">Códigos del día</th>
+                        <th className="py-2.5 pr-4 font-semibold">Nombres del día</th>
                         <th className="py-2.5 pr-4 font-semibold">Estrategia más elegida</th>
                         <th className="py-2.5 font-semibold">Obstáculo principal</th>
                       </tr>
@@ -965,7 +1049,6 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                 </div>
               </div>
 
-              {/* Huella 1 Breakdown */}
               <div className="bg-white/95 border border-violet-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
                 <h3 className="font-display text-xl font-bold text-[#2e2344]">
                   Huella 1 · Uso de estrategias (SÍ / A VECES / NO)
@@ -1003,7 +1086,6 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                 </div>
               </div>
 
-              {/* Charts Grid: Huella 2, 4, 5, 6 */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 {[
                   { title: 'Huella 2 · Estrategia favorita', data: stats.favDist, bar: 'bg-sky-500' },
@@ -1062,7 +1144,11 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                     </span>
                     <span className="text-slate-400" aria-hidden="true">·</span>
                     <span className="text-xs font-mono-tabular text-slate-600">
-                      {r.dateKey} · {new Date(r.createdAtIso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}
+                      {r.dateKey} ·{' '}
+                      {new Date(r.createdAtIso).toLocaleTimeString('es-PE', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
                     </span>
                     <span className="text-slate-400" aria-hidden="true">·</span>
                     <span className="text-xs text-slate-500">{r.deviceType}</span>
@@ -1077,7 +1163,6 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                   </button>
                 </div>
 
-                {/* Huella 1 summary */}
                 <div className="text-xs text-slate-700 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
                   <div>
                     <span className="font-semibold">Habit Tracker:</span> {r.huella1HabitTracker}
@@ -1096,7 +1181,6 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                   </div>
                 </div>
 
-                {/* Huellas 2 to 7 details */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                   <div className="bg-sky-50/70 border border-sky-100 rounded-2xl p-3.5">
                     <p className="text-xs font-bold text-sky-800">Huella 2 · Estrategia favorita</p>

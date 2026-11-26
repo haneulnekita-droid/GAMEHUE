@@ -7,9 +7,9 @@
       "properties": {
         "participantCode": {
           "type": "string",
-          "description": "Participant identifier code entered at start.",
+          "description": "Participant full name (nombre y apellido) entered at start.",
           "minLength": 1,
-          "maxLength": 50
+          "maxLength": 100
         },
         "dateKey": {
           "type": "string",
@@ -144,6 +144,28 @@
         "spreadsheetTitle",
         "updatedAt"
       ]
+    },
+    "FacilitatorPasscode": {
+      "title": "FacilitatorPasscode",
+      "description": "Salted PBKDF2 hash for the facilitator secondary panel passcode.",
+      "type": "object",
+      "properties": {
+        "salt": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 128
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 256
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["salt", "hash", "updatedAt"]
     }
   },
   "firestore": {
@@ -158,6 +180,12 @@
         "$ref": "#/entities/AppConfig"
       },
       "description": "Facilitator Google Sheets sync settings."
+    },
+    "/facilitatorSecurity/{docId}": {
+      "schema": {
+        "$ref": "#/entities/FacilitatorPasscode"
+      },
+      "description": "Cloud-persisted facilitator passcode verifier (admin-only)."
     }
   }
 }

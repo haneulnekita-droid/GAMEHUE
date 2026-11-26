@@ -14,8 +14,6 @@ import {
   getDocFromServer,
   getFirestore,
   onSnapshot,
-  orderBy,
-  query,
   serverTimestamp,
   setDoc,
   type Timestamp,
@@ -194,9 +192,9 @@ export async function submitAdventureToFirestore(
   participantCode: string,
   answers: AdventureAnswers
 ): Promise<string> {
-  const cleanCode = sanitizeText(participantCode, 50);
+  const cleanCode = sanitizeText(participantCode, 100);
   if (!cleanCode) {
-    throw new Error('El código del participante es obligatorio.');
+    throw new Error('Escribe tu nombre y apellido para continuar.');
   }
 
   const submissionId = `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -238,9 +236,8 @@ export function subscribeSubmissions(
   onData: (records: SubmissionRecord[]) => void,
   onError: (err: Error) => void
 ) {
-  const q = query(collection(db, 'submissions'), orderBy('createdAt', 'desc'));
   return onSnapshot(
-    q,
+    collection(db, 'submissions'),
     (snapshot) => {
       const records: SubmissionRecord[] = snapshot.docs.map((docSnap) => {
         const d = docSnap.data();
@@ -268,6 +265,7 @@ export function subscribeSubmissions(
           deviceType: (d.deviceType ?? 'desktop') as 'mobile' | 'tablet' | 'desktop',
         };
       });
+      records.sort((a, b) => b.createdAtIso.localeCompare(a.createdAtIso));
       onData(records);
     },
     (error) => {
@@ -320,3 +318,76 @@ export async function loadLinkedSpreadsheetConfig(): Promise<SpreadsheetConfig |
     handleFirestoreError(error, OperationType.GET, path);
   }
 }
+
+async function derivePasscodeHash(passcode: string, saltHex: string): Promise<string> {
+  const enc = new TextEncoder();
+  const keyMaterial = await window.crypto.subtle.importKey(
+    'raw',
+    enc.encode(passcode),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits']
+  );
+  const saltBytes = new Uint8Array(
+    saltHex.match(/.{1,2}/g)?.map((byte) => Number.parseInt(byte, 16)) ?? []
+  );
+  const derived = await window.crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: saltBytes, iterations: 100000, hash: 'SHA-256' },
+    keyMaterial,
+    256
+  );
+  return Array.from(new Uint8Array(derived))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+export async function hasCloudFacilitatorPasscode(): Promise<boolean> {
+  const path = 'facilitatorSecurity/passcode';
+  try {
+    const snap = await getDocFromServer(doc(db, 'facilitatorSecurity', 'passcode'));
+    return snap.exists();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+  }
+}
+
+export async function setupCloudFacilitatorPasscode(passcode: string): Promise<void> {
+  const path = 'facilitatorSecurity/passcode';
+  const saltBytes = new Uint8Array(16);
+  window.crypto.getRandomValues(saltBytes);
+  const salt = Array.from(saltBytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  const hash = await derivePasscodeHash(passcode, salt);
+  try {
+    await setDoc(doc(db, 'facilitatorSecurity', 'passcode'), {
+      salt,
+      hash,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function verifyCloudFacilitatorPasscode(passcode: string): Promise<boolean> {
+  const path = 'facilitatorSecurity/passcode';
+  try {
+    const snap = await getDocFromServer(doc(db, 'facilitatorSecurity', 'passcode'));
+    if (!snap.exists()) return false;
+    const data = snap.data();
+    const salt = String(data.salt ?? '');
+    const storedHash = String(data.hash ?? '');
+    if (!salt || !storedHash) return false;
+    const candidateHash = await derivePasscodeHash(passcode, salt);
+    if (candidateHash.length !== storedHash.length) return false;
+    let diff = 0;
+    for (let i = 0; i < candidateHash.length; i += 1) {
+      diff |= candidateHash.charCodeAt(i) ^ storedHash.charCodeAt(i);
+    }
+    return diff === 0;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+  }
+}
+
