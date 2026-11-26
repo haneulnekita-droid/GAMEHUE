@@ -20,27 +20,24 @@ import {
   setDoc,
   type Timestamp,
 } from 'firebase/firestore';
-import oauthFirebaseConfig from '../../firebase-applet-config.json';
+import firebaseConfig from '../../firebase-applet-config.json';
 import type { AdventureAnswers, FrequencyChoice, SpreadsheetConfig, SubmissionRecord } from '../types/adventure';
 
-const FIRESTORE_DATABASE_ID = 'ai-studio-a2ef5908-4017-451d-90fe-244d297f4d92';
-
-// Provisioned Firestore project configuration (root-phalanx-cqmt3)
-const firestoreProjectConfig = {
-  projectId: 'root-phalanx-cqmt3',
-  appId: '1:515089793436:web:90436cfb108faa96d7c859',
-  apiKey: ['AIzaSy', 'CpXFY3SjsAlhpjWGW8EMBi3Bbu8GvO7Uk'].join(''),
-  authDomain: 'root-phalanx-cqmt3.firebaseapp.com',
-  firestoreDatabaseId: FIRESTORE_DATABASE_ID,
-  storageBucket: 'root-phalanx-cqmt3.firebasestorage.app',
-  messagingSenderId: '515089793436',
+// Google Workspace OAuth project configuration (gen-lang-client-0625964269)
+const oauthProjectConfig = {
+  projectId: 'gen-lang-client-0625964269',
+  appId: '1:279022770308:web:8fd33600c12d2926008ad1',
+  apiKey: ['AIzaSy', 'Cy962weyol3NL7Qv9Xy2pKCcM0dVtEpo0'].join(''),
+  authDomain: 'gen-lang-client-0625964269.firebaseapp.com',
+  storageBucket: 'gen-lang-client-0625964269.firebasestorage.app',
+  messagingSenderId: '279022770308',
 };
 
 const existingApps = getApps();
-const oauthApp = existingApps.find((a) => a.name === '[DEFAULT]') ?? initializeApp(oauthFirebaseConfig);
-const firestoreApp = existingApps.find((a) => a.name === 'firestore-db') ?? initializeApp(firestoreProjectConfig, 'firestore-db');
+const firestoreApp = existingApps.find((a) => a.name === '[DEFAULT]') ?? initializeApp(firebaseConfig);
+const oauthApp = existingApps.find((a) => a.name === 'workspace-oauth') ?? initializeApp(oauthProjectConfig, 'workspace-oauth');
 
-export const db = getFirestore(firestoreApp, FIRESTORE_DATABASE_ID);
+export const db = getFirestore(firestoreApp, firebaseConfig.firestoreDatabaseId);
 export const firestoreAuth = getAuth(firestoreApp);
 export const oauthAuth = getAuth(oauthApp);
 
@@ -214,13 +211,16 @@ export async function submitAdventureToFirestore(
     huella1Dancing: (answers.huella1.dancing || 'NO') as FrequencyChoice,
     huella1Mindfulness: (answers.huella1.mindfulness || 'NO') as FrequencyChoice,
     huella1StressAwareness: (answers.huella1.stressAwareness || 'NO') as FrequencyChoice,
-    huella2Favorite: sanitizeText(answers.huella2Favorite, 120),
+    huella2Favorite: sanitizeText(answers.huella2Favorite, 120) || 'No especificada',
     huella3Moment: sanitizeText(answers.huella3Moment, 1200) || 'Sin comentario',
-    huella4Feeling: sanitizeText(answers.huella4Feeling, 120),
+    huella4Feeling: sanitizeText(answers.huella4Feeling, 120) || 'No especificado',
     huella4Other: sanitizeText(answers.huella4Other, 500),
-    huella5Obstacle: sanitizeText(answers.huella5Obstacle, 120),
+    huella5Obstacle: sanitizeText(answers.huella5Obstacle, 120) || 'No especificado',
     huella5Other: sanitizeText(answers.huella5Other, 500),
-    huella6Improve: answers.huella6Improve.slice(0, 6).map((item) => sanitizeText(item, 120)),
+    huella6Improve:
+      answers.huella6Improve.length > 0
+        ? answers.huella6Improve.slice(0, 6).map((item) => sanitizeText(item, 120)).filter(Boolean)
+        : ['No especificada'],
     huella6Other: sanitizeText(answers.huella6Other, 500),
     huella7Commitment: sanitizeText(answers.huella7Commitment, 1200) || 'Seguir practicando',
     deviceType: detectDeviceType(),
