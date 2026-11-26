@@ -1,0 +1,6 @@
+{
+  "name": "La Huella de mi Aprendizaje",
+  "description": "Experiencia interactiva tipo videojuego educativo para reflexionar sobre bienestar, manejo del estrés y hábitos positivos en siete huellitas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

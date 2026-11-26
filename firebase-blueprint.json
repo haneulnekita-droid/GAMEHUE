@@ -1,0 +1,163 @@
+{
+  "entities": {
+    "Submission": {
+      "title": "Submission",
+      "description": "Completed 7-footprint learning adventure response from a participant.",
+      "type": "object",
+      "properties": {
+        "participantCode": {
+          "type": "string",
+          "description": "Participant identifier code entered at start.",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "dateKey": {
+          "type": "string",
+          "description": "Local calendar date YYYY-MM-DD when submitted.",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "minLength": 10,
+          "maxLength": 10
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of submission."
+        },
+        "huella1HabitTracker": {
+          "type": "string",
+          "enum": ["SÍ", "A VECES", "NO"],
+          "maxLength": 10
+        },
+        "huella1Breathing": {
+          "type": "string",
+          "enum": ["SÍ", "A VECES", "NO"],
+          "maxLength": 10
+        },
+        "huella1Dancing": {
+          "type": "string",
+          "enum": ["SÍ", "A VECES", "NO"],
+          "maxLength": 10
+        },
+        "huella1Mindfulness": {
+          "type": "string",
+          "enum": ["SÍ", "A VECES", "NO"],
+          "maxLength": 10
+        },
+        "huella1StressAwareness": {
+          "type": "string",
+          "enum": ["SÍ", "A VECES", "NO"],
+          "maxLength": 10
+        },
+        "huella2Favorite": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "huella3Moment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1200
+        },
+        "huella4Feeling": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "huella4Other": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "huella5Obstacle": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "huella5Other": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "huella6Improve": {
+          "type": "array",
+          "description": "List of strategies the participant wants to improve."
+        },
+        "huella6Other": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "huella7Commitment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1200
+        },
+        "deviceType": {
+          "type": "string",
+          "enum": ["mobile", "tablet", "desktop"],
+          "maxLength": 20
+        }
+      },
+      "required": [
+        "participantCode",
+        "dateKey",
+        "createdAt",
+        "huella1HabitTracker",
+        "huella1Breathing",
+        "huella1Dancing",
+        "huella1Mindfulness",
+        "huella1StressAwareness",
+        "huella2Favorite",
+        "huella3Moment",
+        "huella4Feeling",
+        "huella4Other",
+        "huella5Obstacle",
+        "huella5Other",
+        "huella6Improve",
+        "huella6Other",
+        "huella7Commitment",
+        "deviceType"
+      ]
+    },
+    "AppConfig": {
+      "title": "AppConfig",
+      "description": "Facilitator configuration such as linked Google Spreadsheet metadata.",
+      "type": "object",
+      "properties": {
+        "spreadsheetId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "spreadsheetUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "spreadsheetTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "spreadsheetUrl",
+        "spreadsheetTitle",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/submissions/{submissionId}": {
+      "schema": {
+        "$ref": "#/entities/Submission"
+      },
+      "description": "Participant adventure submissions."
+    },
+    "/appConfig/{configId}": {
+      "schema": {
+        "$ref": "#/entities/AppConfig"
+      },
+      "description": "Facilitator Google Sheets sync settings."
+    }
+  }
+}

@@ -1,0 +1,120 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == 'haneulnekita@gmail.com';
+    }
+
+    function isValidFrequency(val) {
+      return val is string && val.size() <= 10 && val in ['SÍ', 'A VECES', 'NO'];
+    }
+
+    function isValidSubmission(data) {
+      return data.keys().hasAll([
+          'participantCode',
+          'dateKey',
+          'createdAt',
+          'huella1HabitTracker',
+          'huella1Breathing',
+          'huella1Dancing',
+          'huella1Mindfulness',
+          'huella1StressAwareness',
+          'huella2Favorite',
+          'huella3Moment',
+          'huella4Feeling',
+          'huella4Other',
+          'huella5Obstacle',
+          'huella5Other',
+          'huella6Improve',
+          'huella6Other',
+          'huella7Commitment',
+          'deviceType'
+        ])
+        && data.keys().hasOnly([
+          'participantCode',
+          'dateKey',
+          'createdAt',
+          'huella1HabitTracker',
+          'huella1Breathing',
+          'huella1Dancing',
+          'huella1Mindfulness',
+          'huella1StressAwareness',
+          'huella2Favorite',
+          'huella3Moment',
+          'huella4Feeling',
+          'huella4Other',
+          'huella5Obstacle',
+          'huella5Other',
+          'huella6Improve',
+          'huella6Other',
+          'huella7Commitment',
+          'deviceType'
+        ])
+        && data.participantCode is string && data.participantCode.size() >= 1 && data.participantCode.size() <= 50
+        && data.dateKey is string && data.dateKey.size() == 10 && data.dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.createdAt is timestamp && data.createdAt == request.time
+        && isValidFrequency(data.huella1HabitTracker)
+        && isValidFrequency(data.huella1Breathing)
+        && isValidFrequency(data.huella1Dancing)
+        && isValidFrequency(data.huella1Mindfulness)
+        && isValidFrequency(data.huella1StressAwareness)
+        && data.huella2Favorite is string && data.huella2Favorite.size() >= 1 && data.huella2Favorite.size() <= 120
+        && data.huella3Moment is string && data.huella3Moment.size() >= 1 && data.huella3Moment.size() <= 1200
+        && data.huella4Feeling is string && data.huella4Feeling.size() >= 1 && data.huella4Feeling.size() <= 120
+        && data.huella4Other is string && data.huella4Other.size() <= 500
+        && data.huella5Obstacle is string && data.huella5Obstacle.size() >= 1 && data.huella5Obstacle.size() <= 120
+        && data.huella5Other is string && data.huella5Other.size() <= 500
+        && data.huella6Improve is list && data.huella6Improve.size() >= 1 && data.huella6Improve.size() <= 6
+        && data.huella6Improve[0] is string && data.huella6Improve[0].size() >= 1 && data.huella6Improve[0].size() <= 120
+        && data.huella6Other is string && data.huella6Other.size() <= 500
+        && data.huella7Commitment is string && data.huella7Commitment.size() >= 1 && data.huella7Commitment.size() <= 1200
+        && data.deviceType is string && data.deviceType.size() <= 20 && data.deviceType in ['mobile', 'tablet', 'desktop'];
+    }
+
+    function isValidAppConfig(data) {
+      return data.keys().hasAll(['spreadsheetId', 'spreadsheetUrl', 'spreadsheetTitle', 'updatedAt'])
+        && data.keys().hasOnly(['spreadsheetId', 'spreadsheetUrl', 'spreadsheetTitle', 'updatedAt'])
+        && data.spreadsheetId is string && data.spreadsheetId.size() >= 1 && data.spreadsheetId.size() <= 200
+        && data.spreadsheetUrl is string && data.spreadsheetUrl.size() >= 1 && data.spreadsheetUrl.size() <= 500
+        && data.spreadsheetUrl.matches('^https://docs\\.google\\.com/spreadsheets/.*')
+        && data.spreadsheetTitle is string && data.spreadsheetTitle.size() >= 1 && data.spreadsheetTitle.size() <= 200
+        && data.updatedAt is timestamp && data.updatedAt == request.time;
+    }
+
+    match /submissions/{submissionId} {
+      allow get: if isAdmin() && isValidId(submissionId);
+      allow list: if isAdmin();
+      allow create: if isValidId(submissionId) && isValidSubmission(incoming());
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(submissionId);
+    }
+
+    match /appConfig/{configId} {
+      allow get: if isAdmin() && isValidId(configId);
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(configId) && isValidAppConfig(incoming());
+      allow update: if isAdmin() && isValidId(configId) && isValidAppConfig(incoming())
+        && incoming().diff(resource.data).affectedKeys().hasOnly(['spreadsheetId', 'spreadsheetUrl', 'spreadsheetTitle', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(configId);
+    }
+  }
+}
