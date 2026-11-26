@@ -38,7 +38,14 @@ import {
   subscribeWorkspaceAuth,
   verifyCloudFacilitatorPasscode,
 } from '../firebase/config';
-import { buildDailySummaries, downloadCsvFile, downloadExcelWorkbook } from '../services/exportService';
+import {
+  buildDailySummaries,
+  downloadCsvFile,
+  downloadCsvForDay,
+  downloadExcelForDay,
+  downloadExcelWorkbook,
+  groupRecordsByDay,
+} from '../services/exportService';
 import { createAdventureSpreadsheet, syncSubmissionsToGoogleSheet } from '../services/googleSheetsService';
 import {
   HUELLA1_CARDS,
@@ -424,6 +431,8 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
       return matchesDay && matchesCode;
     });
   }, [records, selectedDay, searchCode]);
+
+  const filteredDailyGroups = useMemo(() => groupRecordsByDay(filteredRecords), [filteredRecords]);
 
   const stats = useMemo(() => {
     const favDist = buildDistribution(filteredRecords.map((r) => r.huella2Favorite));
@@ -1017,7 +1026,8 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                         <th className="py-2.5 pr-4 font-semibold">Participantes</th>
                         <th className="py-2.5 pr-4 font-semibold">Nombres del día</th>
                         <th className="py-2.5 pr-4 font-semibold">Estrategia más elegida</th>
-                        <th className="py-2.5 font-semibold">Obstáculo principal</th>
+                        <th className="py-2.5 pr-4 font-semibold">Obstáculo principal</th>
+                        <th className="py-2.5 font-semibold">Descargar día</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1037,11 +1047,32 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                           <td className="py-3 pr-4 font-mono-tabular font-bold text-[#2e2344]">
                             {day.count}
                           </td>
-                          <td className="py-3 pr-4 text-slate-700 font-mono-tabular text-xs">
+                          <td className="py-3 pr-4 text-slate-700 text-xs">
                             {day.codes.join(', ')}
                           </td>
                           <td className="py-3 pr-4 text-slate-800">{day.topFavorite}</td>
-                          <td className="py-3 text-slate-700">{day.topObstacle}</td>
+                          <td className="py-3 pr-4 text-slate-700">{day.topObstacle}</td>
+                          <td
+                            className="py-3 whitespace-nowrap"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => downloadExcelForDay(day.dateKey, records)}
+                                className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold cursor-pointer"
+                              >
+                                Excel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => downloadCsvForDay(day.dateKey, records)}
+                                className="px-2.5 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 border border-sky-200 text-sky-800 text-xs font-bold cursor-pointer"
+                              >
+                                CSV
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1124,98 +1155,133 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
         </div>
       )}
 
-      {/* TAB: INDIVIDUAL & OPEN-ENDED RESPONSES */}
+      {/* TAB: INDIVIDUAL & OPEN-ENDED RESPONSES GROUPED BY DAY */}
       {activeTab === 'responses' && (
-        <div className="space-y-4">
-          {filteredRecords.length === 0 ? (
+        <div className="space-y-6">
+          {filteredDailyGroups.length === 0 ? (
             <div className="bg-white/95 border border-violet-200 rounded-3xl p-10 text-center text-slate-600">
               No hay respuestas que coincidan con los filtros actuales.
             </div>
           ) : (
-            filteredRecords.map((r) => (
-              <div
-                key={r.id}
-                className="bg-white/95 border border-violet-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="font-display text-lg font-extrabold text-violet-800 font-mono-tabular">
-                      {r.participantCode}
+            filteredDailyGroups.map((group) => (
+              <div key={group.dateKey} className="space-y-3">
+                <div className="bg-violet-50/90 border border-violet-200 rounded-2xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <CalendarDays className="w-5 h-5 text-violet-600 shrink-0" />
+                    <h3 className="font-display text-lg font-extrabold text-[#2e2344] font-mono-tabular">
+                      Día {group.dateKey}
+                    </h3>
+                    <span className="text-xs font-semibold text-violet-700 font-mono-tabular">
+                      · {group.records.length} registro(s)
                     </span>
-                    <span className="text-slate-400" aria-hidden="true">·</span>
-                    <span className="text-xs font-mono-tabular text-slate-600">
-                      {r.dateKey} ·{' '}
-                      {new Date(r.createdAtIso).toLocaleTimeString('es-PE', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                    <span className="text-slate-400" aria-hidden="true">·</span>
-                    <span className="text-xs text-slate-500">{r.deviceType}</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRequestDeleteRecord(r)}
-                    className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-600 hover:text-rose-800 cursor-pointer self-start sm:self-auto"
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => downloadExcelForDay(group.dateKey, filteredRecords)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer whitespace-nowrap"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5" />
+                      <span>Excel de este día</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadCsvForDay(group.dateKey, filteredRecords)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer whitespace-nowrap"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>CSV de este día</span>
+                    </button>
+                  </div>
+                </div>
+
+                {group.records.map((r) => (
+                  <div
+                    key={r.id}
+                    className="bg-white/95 border border-violet-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Eliminar</span>
-                  </button>
-                </div>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="font-display text-lg font-extrabold text-violet-800">
+                          {r.participantCode}
+                        </span>
+                        <span className="text-slate-400" aria-hidden="true">·</span>
+                        <span className="text-xs font-mono-tabular text-slate-600">
+                          {r.dateKey} ·{' '}
+                          {new Date(r.createdAtIso).toLocaleTimeString('es-PE', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                        <span className="text-slate-400" aria-hidden="true">·</span>
+                        <span className="text-xs text-slate-500">{r.deviceType}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRequestDeleteRecord(r)}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-600 hover:text-rose-800 cursor-pointer self-start sm:self-auto"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Eliminar</span>
+                      </button>
+                    </div>
 
-                <div className="text-xs text-slate-700 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
-                  <div>
-                    <span className="font-semibold">Habit Tracker:</span> {r.huella1HabitTracker}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Respiración:</span> {r.huella1Breathing}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Bailar:</span> {r.huella1Dancing}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Mindfulness:</span> {r.huella1Mindfulness}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Estrés:</span> {r.huella1StressAwareness}
-                  </div>
-                </div>
+                    <div className="text-xs text-slate-700 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                      <div>
+                        <span className="font-semibold">Habit Tracker:</span> {r.huella1HabitTracker}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Respiración:</span> {r.huella1Breathing}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Bailar:</span> {r.huella1Dancing}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Mindfulness:</span> {r.huella1Mindfulness}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Estrés:</span> {r.huella1StressAwareness}
+                      </div>
+                    </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                  <div className="bg-sky-50/70 border border-sky-100 rounded-2xl p-3.5">
-                    <p className="text-xs font-bold text-sky-800">Huella 2 · Estrategia favorita</p>
-                    <p className="mt-1 text-slate-800">{r.huella2Favorite}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                      <div className="bg-sky-50/70 border border-sky-100 rounded-2xl p-3.5">
+                        <p className="text-xs font-bold text-sky-800">Huella 2 · Estrategia favorita</p>
+                        <p className="mt-1 text-slate-800">{r.huella2Favorite}</p>
+                      </div>
+                      <div className="bg-amber-50/70 border border-amber-100 rounded-2xl p-3.5">
+                        <p className="text-xs font-bold text-amber-800">Huella 3 · ¿Cuándo la utilizó? (Abierta)</p>
+                        <p className="mt-1 text-slate-800 whitespace-pre-line">{r.huella3Moment}</p>
+                      </div>
+                      <div className="bg-pink-50/70 border border-pink-100 rounded-2xl p-3.5">
+                        <p className="text-xs font-bold text-pink-800">Huella 4 · ¿Cómo se sintió?</p>
+                        <p className="mt-1 text-slate-800">
+                          {r.huella4Feeling}
+                          {r.huella4Other ? ` — "${r.huella4Other}"` : ''}
+                        </p>
+                      </div>
+                      <div className="bg-teal-50/70 border border-teal-100 rounded-2xl p-3.5">
+                        <p className="text-xs font-bold text-teal-800">Huella 5 · Obstáculos</p>
+                        <p className="mt-1 text-slate-800">
+                          {r.huella5Obstacle}
+                          {r.huella5Other ? ` — "${r.huella5Other}"` : ''}
+                        </p>
+                      </div>
+                      <div className="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-3.5">
+                        <p className="text-xs font-bold text-indigo-800">Huella 6 · Qué quiere mejorar</p>
+                        <p className="mt-1 text-slate-800">
+                          {r.huella6Improve.join(', ')}
+                          {r.huella6Other ? ` — "${r.huella6Other}"` : ''}
+                        </p>
+                      </div>
+                      <div className="bg-orange-50/70 border border-orange-100 rounded-2xl p-3.5">
+                        <p className="text-xs font-bold text-orange-800">Huella 7 · Próximo compromiso (Abierta)</p>
+                        <p className="mt-1 text-slate-800 whitespace-pre-line">{r.huella7Commitment}</p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="bg-amber-50/70 border border-amber-100 rounded-2xl p-3.5">
-                    <p className="text-xs font-bold text-amber-800">Huella 3 · ¿Cuándo la utilizó? (Abierta)</p>
-                    <p className="mt-1 text-slate-800 whitespace-pre-line">{r.huella3Moment}</p>
-                  </div>
-                  <div className="bg-pink-50/70 border border-pink-100 rounded-2xl p-3.5">
-                    <p className="text-xs font-bold text-pink-800">Huella 4 · ¿Cómo se sintió?</p>
-                    <p className="mt-1 text-slate-800">
-                      {r.huella4Feeling}
-                      {r.huella4Other ? ` — "${r.huella4Other}"` : ''}
-                    </p>
-                  </div>
-                  <div className="bg-teal-50/70 border border-teal-100 rounded-2xl p-3.5">
-                    <p className="text-xs font-bold text-teal-800">Huella 5 · Obstáculos</p>
-                    <p className="mt-1 text-slate-800">
-                      {r.huella5Obstacle}
-                      {r.huella5Other ? ` — "${r.huella5Other}"` : ''}
-                    </p>
-                  </div>
-                  <div className="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-3.5">
-                    <p className="text-xs font-bold text-indigo-800">Huella 6 · Qué quiere mejorar</p>
-                    <p className="mt-1 text-slate-800">
-                      {r.huella6Improve.join(', ')}
-                      {r.huella6Other ? ` — "${r.huella6Other}"` : ''}
-                    </p>
-                  </div>
-                  <div className="bg-orange-50/70 border border-orange-100 rounded-2xl p-3.5">
-                    <p className="text-xs font-bold text-orange-800">Huella 7 · Próximo compromiso (Abierta)</p>
-                    <p className="mt-1 text-slate-800 whitespace-pre-line">{r.huella7Commitment}</p>
-                  </div>
-                </div>
+                ))}
               </div>
             ))
           )}

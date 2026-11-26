@@ -9,7 +9,12 @@ export interface DailySummaryRow {
   topObstacle: string;
 }
 
-export function buildDailySummaries(records: SubmissionRecord[]): DailySummaryRow[] {
+export interface DailyGroup {
+  dateKey: string;
+  records: SubmissionRecord[];
+}
+
+export function groupRecordsByDay(records: SubmissionRecord[]): DailyGroup[] {
   const byDay = new Map<string, SubmissionRecord[]>();
   for (const r of records) {
     const day = r.dateKey || r.createdAtIso.slice(0, 10);
@@ -17,9 +22,18 @@ export function buildDailySummaries(records: SubmissionRecord[]): DailySummaryRo
     list.push(r);
     byDay.set(day, list);
   }
+  return [...byDay.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([dateKey, dayRecords]) => ({
+      dateKey,
+      records: [...dayRecords].sort((a, b) => a.createdAtIso.localeCompare(b.createdAtIso)),
+    }));
+}
 
-  const summaries: DailySummaryRow[] = [];
-  for (const [dateKey, list] of byDay.entries()) {
+export function buildDailySummaries(records: SubmissionRecord[]): DailySummaryRow[] {
+  const groups = groupRecordsByDay(records);
+
+  return groups.map(({ dateKey, records: list }) => {
     const favCounts = new Map<string, number>();
     const obsCounts = new Map<string, number>();
     const codes: string[] = [];
@@ -37,16 +51,14 @@ export function buildDailySummaries(records: SubmissionRecord[]): DailySummaryRo
     const topFavorite = [...favCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Sin datos';
     const topObstacle = [...obsCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Sin datos';
 
-    summaries.push({
+    return {
       dateKey,
       count: list.length,
       codes,
       topFavorite,
       topObstacle,
-    });
-  }
-
-  return summaries.sort((a, b) => b.dateKey.localeCompare(a.dateKey));
+    };
+  });
 }
 
 function formatDateTimeParts(iso: string): { fecha: string; hora: string } {
@@ -86,8 +98,14 @@ export function submissionToFlatObject(r: SubmissionRecord) {
   };
 }
 
-export function downloadExcelWorkbook(records: SubmissionRecord[]) {
-  const detailedRows = records.map(submissionToFlatObject);
+function makeSafeSheetName(raw: string): string {
+  return raw.replace(/[:\\/?*[\]]/g, '-').slice(0, 31);
+}
+
+export function downloadExcelWorkbook(records: SubmissionRecord[], filename?: string) {
+  const wb = XLSX.utils.book_new();
+  const dailyGroups = groupRecordsByDay(records);
+
   const dailyRows = buildDailySummaries(records).map((day) => ({
     'Día (YYYY-MM-DD)': day.dateKey,
     'Total Participantes': day.count,
@@ -96,23 +114,43 @@ export function downloadExcelWorkbook(records: SubmissionRecord[]) {
     'Dificultad Más Frecuente': day.topObstacle,
   }));
 
-  const wb = XLSX.utils.book_new();
+  const wsDaily = XLSX.utils.json_to_sheet(
+    dailyRows.length > 0 ? dailyRows : [{ Mensaje: 'Aún no hay resúmenes diarios' }]
+  );
+  XLSX.utils.book_append_sheet(wb, wsDaily, 'Resumen por Día');
+
+  // Add one dedicated Excel tab per exact day so every day's records are separated cleanly
+  for (const group of dailyGroups) {
+    const daySheetRows = group.records.map(submissionToFlatObject);
+    const wsDay = XLSX.utils.json_to_sheet(daySheetRows);
+    XLSX.utils.book_append_sheet(wb, wsDay, makeSafeSheetName(`Día ${group.dateKey}`));
+  }
+
+  const detailedRows = [...records]
+    .sort((a, b) => b.createdAtIso.localeCompare(a.createdAtIso))
+    .map(submissionToFlatObject);
   const wsDetail = XLSX.utils.json_to_sheet(
     detailedRows.length > 0
       ? detailedRows
       : [{ Mensaje: 'Aún no hay respuestas registradas' }]
   );
-  const wsDaily = XLSX.utils.json_to_sheet(
-    dailyRows.length > 0
-      ? dailyRows
-      : [{ Mensaje: 'Aún no hay resúmenes diarios' }]
-  );
-
-  XLSX.utils.book_append_sheet(wb, wsDetail, 'Respuestas Detalladas');
-  XLSX.utils.book_append_sheet(wb, wsDaily, 'Resumen por Día');
+  XLSX.utils.book_append_sheet(wb, wsDetail, 'Todas las Respuestas');
 
   const today = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `la_huella_de_mi_aprendizaje_${today}.xlsx`);
+  XLSX.writeFile(wb, filename || `la_huella_por_dias_${today}.xlsx`);
+}
+
+export function downloadExcelForDay(dateKey: string, records: SubmissionRecord[]) {
+  const dayRecords = records.filter((r) => (r.dateKey || r.createdAtIso.slice(0, 10)) === dateKey);
+  if (dayRecords.length === 0) return;
+
+  const wb = XLSX.utils.book_new();
+  const rows = [...dayRecords]
+    .sort((a, b) => a.createdAtIso.localeCompare(b.createdAtIso))
+    .map(submissionToFlatObject);
+  const ws = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, ws, makeSafeSheetName(`Día ${dateKey}`));
+  XLSX.writeFile(wb, `la_huella_dia_${dateKey}.xlsx`);
 }
 
 function escapeCsvCell(value: string): string {
@@ -120,8 +158,9 @@ function escapeCsvCell(value: string): string {
   return `"${safe}"`;
 }
 
-export function downloadCsvFile(records: SubmissionRecord[]) {
-  const flat = records.map(submissionToFlatObject);
+export function downloadCsvFile(records: SubmissionRecord[], filename?: string) {
+  const sorted = [...records].sort((a, b) => b.dateKey.localeCompare(a.dateKey) || a.createdAtIso.localeCompare(b.createdAtIso));
+  const flat = sorted.map(submissionToFlatObject);
   if (flat.length === 0) return;
 
   const headers = Object.keys(flat[0]);
@@ -138,9 +177,15 @@ export function downloadCsvFile(records: SubmissionRecord[]) {
   const link = document.createElement('a');
   const today = new Date().toISOString().slice(0, 10);
   link.href = url;
-  link.setAttribute('download', `la_huella_de_mi_aprendizaje_${today}.csv`);
+  link.setAttribute('download', filename || `la_huella_por_dias_${today}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+export function downloadCsvForDay(dateKey: string, records: SubmissionRecord[]) {
+  const dayRecords = records.filter((r) => (r.dateKey || r.createdAtIso.slice(0, 10)) === dateKey);
+  if (dayRecords.length === 0) return;
+  downloadCsvFile(dayRecords, `la_huella_dia_${dateKey}.csv`);
 }

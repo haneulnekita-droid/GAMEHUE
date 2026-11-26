@@ -1,5 +1,5 @@
 import type { SpreadsheetConfig, SubmissionRecord } from '../types/adventure';
-import { buildDailySummaries } from './exportService';
+import { buildDailySummaries, groupRecordsByDay } from './exportService';
 
 const SHEET_RESPONSES_TITLE = 'Todas las Respuestas';
 const SHEET_DAILY_TITLE = 'Resumen por Día';
@@ -61,8 +61,8 @@ export async function createAdventureSpreadsheet(accessToken: string): Promise<S
         locale: 'es_ES',
       },
       sheets: [
-        { properties: { title: SHEET_RESPONSES_TITLE } },
         { properties: { title: SHEET_DAILY_TITLE } },
+        { properties: { title: SHEET_RESPONSES_TITLE } },
       ],
     }),
   });
@@ -139,9 +139,14 @@ export async function syncSubmissionsToGoogleSheet(
     ? meta.sheets.map((s: { properties?: { title?: string } }) => String(s.properties?.title ?? ''))
     : [];
 
-  const missingSheets: string[] = [];
-  if (!sheetTitles.includes(SHEET_RESPONSES_TITLE)) missingSheets.push(SHEET_RESPONSES_TITLE);
-  if (!sheetTitles.includes(SHEET_DAILY_TITLE)) missingSheets.push(SHEET_DAILY_TITLE);
+  const dailyGroups = groupRecordsByDay(records);
+  const desiredSheets = [
+    SHEET_DAILY_TITLE,
+    SHEET_RESPONSES_TITLE,
+    ...dailyGroups.map((g) => `Día ${g.dateKey}`),
+  ];
+
+  const missingSheets = desiredSheets.filter((title) => !sheetTitles.includes(title));
 
   if (missingSheets.length > 0) {
     await sheetsFetch(
@@ -156,6 +161,7 @@ export async function syncSubmissionsToGoogleSheet(
     );
   }
 
+  // Update main "Todas las Respuestas" tab
   const existingIdRes = await sheetsFetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
       `'${SHEET_RESPONSES_TITLE}'!A:A`
@@ -164,25 +170,22 @@ export async function syncSubmissionsToGoogleSheet(
   );
 
   const existingValues: string[][] = Array.isArray(existingIdRes.values) ? existingIdRes.values : [];
-  const hasHeader = existingValues.length > 0 && existingValues[0]?.[0] === RESPONSE_HEADERS[0];
   const existingIds = new Set(existingValues.flat().filter(Boolean));
 
   const missingRecords = records
     .filter((r) => !existingIds.has(r.id))
     .sort((a, b) => a.createdAtIso.localeCompare(b.createdAtIso));
 
-  if (!hasHeader) {
-    await sheetsFetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
-        `'${SHEET_RESPONSES_TITLE}'!A1:S1`
-      )}?valueInputOption=USER_ENTERED`,
-      accessToken,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ values: [RESPONSE_HEADERS] }),
-      }
-    );
-  }
+  await sheetsFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
+      `'${SHEET_RESPONSES_TITLE}'!A1:S1`
+    )}?valueInputOption=USER_ENTERED`,
+    accessToken,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ values: [RESPONSE_HEADERS] }),
+    }
+  );
 
   if (missingRecords.length > 0) {
     await sheetsFetch(
@@ -199,7 +202,7 @@ export async function syncSubmissionsToGoogleSheet(
     );
   }
 
-  // Rebuild daily summary tab cleanly
+  // Rebuild daily summary tab + each exact day tab ("Día YYYY-MM-DD")
   const dailyRows = buildDailySummaries(records).map((day) => [
     day.dateKey,
     String(day.count),
@@ -208,23 +211,39 @@ export async function syncSubmissionsToGoogleSheet(
     day.topObstacle,
   ]);
 
-  await sheetsFetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
-      `'${SHEET_DAILY_TITLE}'!A:E`
-    )}:clear`,
-    accessToken,
-    { method: 'POST', body: JSON.stringify({}) }
-  );
+  const clearRanges = [
+    `'${SHEET_DAILY_TITLE}'!A:E`,
+    ...dailyGroups.map((g) => `'Día ${g.dateKey}'!A:S`),
+  ];
 
   await sheetsFetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(
-      `'${SHEET_DAILY_TITLE}'!A1:E${dailyRows.length + 1}`
-    )}?valueInputOption=USER_ENTERED`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`,
     accessToken,
     {
-      method: 'PUT',
+      method: 'POST',
+      body: JSON.stringify({ ranges: clearRanges }),
+    }
+  );
+
+  const batchData = [
+    {
+      range: `'${SHEET_DAILY_TITLE}'!A1:E${dailyRows.length + 1}`,
+      values: [DAILY_HEADERS, ...dailyRows],
+    },
+    ...dailyGroups.map((g) => ({
+      range: `'Día ${g.dateKey}'!A1:S${g.records.length + 1}`,
+      values: [RESPONSE_HEADERS, ...g.records.map(recordToSheetRow)],
+    })),
+  ];
+
+  await sheetsFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
+    accessToken,
+    {
+      method: 'POST',
       body: JSON.stringify({
-        values: [DAILY_HEADERS, ...dailyRows],
+        valueInputOption: 'USER_ENTERED',
+        data: batchData,
       }),
     }
   );
