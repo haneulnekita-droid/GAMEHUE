@@ -242,11 +242,13 @@ export function subscribeSubmissions(
       const records: SubmissionRecord[] = snapshot.docs.map((docSnap) => {
         const d = docSnap.data();
         const ts = d.createdAt as Timestamp | undefined;
-        const iso = ts && typeof ts.toDate === 'function' ? ts.toDate().toISOString() : new Date().toISOString();
+        const createdDate = ts && typeof ts.toDate === 'function' ? ts.toDate() : new Date();
+        const iso = createdDate.toISOString();
+        const rawDateKey = typeof d.dateKey === 'string' ? d.dateKey.trim() : '';
         return {
           id: docSnap.id,
           participantCode: String(d.participantCode ?? ''),
-          dateKey: String(d.dateKey ?? iso.slice(0, 10)),
+          dateKey: rawDateKey || getLocalDateKey(createdDate),
           createdAtIso: iso,
           huella1HabitTracker: (d.huella1HabitTracker ?? 'NO') as FrequencyChoice,
           huella1Breathing: (d.huella1Breathing ?? 'NO') as FrequencyChoice,

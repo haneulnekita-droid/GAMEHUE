@@ -465,12 +465,23 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
       };
     });
 
+    const huella3Responses = filteredRecords.filter((r) => r.huella3Moment.trim().length > 0);
+    const huella4OtherResponses = filteredRecords.filter((r) => r.huella4Other.trim().length > 0);
+    const huella5OtherResponses = filteredRecords.filter((r) => r.huella5Other.trim().length > 0);
+    const huella6OtherResponses = filteredRecords.filter((r) => r.huella6Other.trim().length > 0);
+    const huella7Responses = filteredRecords.filter((r) => r.huella7Commitment.trim().length > 0);
+
     return {
       favDist,
       feelingDist,
       obstacleDist,
       improveDist,
       h1Stats,
+      huella3Responses,
+      huella4OtherResponses,
+      huella5OtherResponses,
+      huella6OtherResponses,
+      huella7Responses,
       topFavorite: favDist[0]?.label ?? 'Sin datos',
       topObstacle: obstacleDist[0]?.label ?? 'Sin datos',
     };
@@ -702,22 +713,36 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
-            onClick={() => downloadExcelWorkbook(filteredRecords)}
+            onClick={() =>
+              selectedDay !== 'ALL'
+                ? downloadExcelForDay(selectedDay, filteredRecords)
+                : downloadExcelWorkbook(filteredRecords)
+            }
             disabled={filteredRecords.length === 0}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold cursor-pointer disabled:opacity-50 whitespace-nowrap"
           >
             <FileSpreadsheet className="w-4 h-4" />
-            <span>Descargar Excel (.xlsx)</span>
+            <span>
+              {selectedDay !== 'ALL'
+                ? `Descargar Excel (${selectedDay})`
+                : 'Descargar Excel (.xlsx)'}
+            </span>
           </button>
 
           <button
             type="button"
-            onClick={() => downloadCsvFile(filteredRecords)}
+            onClick={() =>
+              selectedDay !== 'ALL'
+                ? downloadCsvForDay(selectedDay, filteredRecords)
+                : downloadCsvFile(filteredRecords)
+            }
             disabled={filteredRecords.length === 0}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold cursor-pointer disabled:opacity-50 whitespace-nowrap"
           >
             <Download className="w-4 h-4" />
-            <span>Descargar CSV</span>
+            <span>
+              {selectedDay !== 'ALL' ? `Descargar CSV (${selectedDay})` : 'Descargar CSV'}
+            </span>
           </button>
 
           <button
@@ -853,74 +878,135 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
         </div>
       </div>
 
-      {/* Navigation Tabs + Filters */}
-      <div className="bg-white/95 border border-violet-200 rounded-3xl p-4 sm:p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-1.5 p-1 bg-violet-50 rounded-2xl w-fit">
-          <button
-            type="button"
-            onClick={() => setActiveTab('analytics')}
-            className={`px-4 py-2 rounded-xl text-sm font-bold inline-flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap ${
-              activeTab === 'analytics'
-                ? 'bg-white text-violet-800 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            <span>Gráficos y Días</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('responses')}
-            className={`px-4 py-2 rounded-xl text-sm font-bold inline-flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap ${
-              activeTab === 'responses'
-                ? 'bg-white text-violet-800 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <MessageSquareText className="w-4 h-4" />
-            <span>Respuestas ({filteredRecords.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('share')}
-            className={`px-4 py-2 rounded-xl text-sm font-bold inline-flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap ${
-              activeTab === 'share'
-                ? 'bg-white text-violet-800 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <QrCode className="w-4 h-4" />
-            <span>Enlace y QR</span>
-          </button>
+      {/* Navigation Tabs + Prominent Day & Name Filters */}
+      <div className="bg-white/95 border border-violet-200 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-center gap-1.5 p-1 bg-violet-50 rounded-2xl w-fit">
+            <button
+              type="button"
+              onClick={() => setActiveTab('analytics')}
+              className={`px-4 py-2 rounded-xl text-sm font-bold inline-flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap ${
+                activeTab === 'analytics'
+                  ? 'bg-white text-violet-800 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span>Gráficos y Días</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('responses')}
+              className={`px-4 py-2 rounded-xl text-sm font-bold inline-flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap ${
+                activeTab === 'responses'
+                  ? 'bg-white text-violet-800 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <MessageSquareText className="w-4 h-4" />
+              <span>Respuestas ({filteredRecords.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('share')}
+              className={`px-4 py-2 rounded-xl text-sm font-bold inline-flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap ${
+                activeTab === 'share'
+                  ? 'bg-white text-violet-800 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <QrCode className="w-4 h-4" />
+              <span>Enlace y QR</span>
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchCode}
+                onChange={(e) => setSearchCode(e.target.value)}
+                placeholder="Buscar por nombre y apellido..."
+                className="pl-9 pr-4 py-2 rounded-xl border border-violet-200 focus:border-violet-500 focus:outline-none text-sm bg-white"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label htmlFor="day-date-picker" className="text-xs font-bold text-violet-800 whitespace-nowrap">
+                Calendario:
+              </label>
+              <input
+                id="day-date-picker"
+                type="date"
+                value={selectedDay === 'ALL' ? '' : selectedDay}
+                onChange={(e) => setSelectedDay(e.target.value || 'ALL')}
+                className="px-3 py-2 rounded-xl border border-violet-200 focus:border-violet-500 focus:outline-none text-sm bg-white font-mono-tabular text-[#2e2344]"
+              />
+            </div>
+
+            <div className="relative flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-violet-500" />
+              <select
+                aria-label="Seleccionar día"
+                value={selectedDay}
+                onChange={(e) => setSelectedDay(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-violet-200 focus:border-violet-500 focus:outline-none text-sm bg-white font-medium text-[#2e2344]"
+              >
+                <option value="ALL">Todos los días ({records.length})</option>
+                {dailySummaries.map((d) => (
+                  <option key={d.dateKey} value={d.dateKey}>
+                    {d.dateKey} ({d.count})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchCode}
-              onChange={(e) => setSearchCode(e.target.value)}
-              placeholder="Buscar por nombre y apellido..."
-              className="pl-9 pr-4 py-2 rounded-xl border border-violet-200 focus:border-violet-500 focus:outline-none text-sm bg-white"
-            />
-          </div>
-
-          <div className="relative flex items-center gap-2">
-            <CalendarDays className="w-4 h-4 text-violet-500" />
-            <select
-              value={selectedDay}
-              onChange={(e) => setSelectedDay(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-violet-200 focus:border-violet-500 focus:outline-none text-sm bg-white font-medium"
+        {/* Clickable Day Selector Strip */}
+        <div className="pt-3 border-t border-violet-100 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-bold text-slate-600 mr-1 inline-flex items-center gap-1.5">
+            <CalendarDays className="w-3.5 h-3.5 text-violet-600" />
+            <span>Seleccionar por día:</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setSelectedDay('ALL')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer whitespace-nowrap border ${
+              selectedDay === 'ALL'
+                ? 'bg-violet-600 border-violet-600 text-white shadow-xs'
+                : 'bg-violet-50 border-violet-200 text-violet-800 hover:bg-violet-100'
+            }`}
+          >
+            Todos los días ({records.length})
+          </button>
+          {dailySummaries.map((d) => {
+            const isSelected = selectedDay === d.dateKey;
+            return (
+              <button
+                key={d.dateKey}
+                type="button"
+                onClick={() => setSelectedDay(isSelected ? 'ALL' : d.dateKey)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold font-mono-tabular transition-colors cursor-pointer whitespace-nowrap border ${
+                  isSelected
+                    ? 'bg-violet-600 border-violet-600 text-white shadow-xs'
+                    : 'bg-white border-violet-200 text-[#2e2344] hover:bg-violet-50'
+                }`}
+              >
+                {d.dateKey} ({d.count})
+              </button>
+            );
+          })}
+          {selectedDay !== 'ALL' && (
+            <button
+              type="button"
+              onClick={() => setSelectedDay('ALL')}
+              className="ml-auto text-xs font-bold text-rose-600 hover:text-rose-800 hover:underline cursor-pointer"
             >
-              <option value="ALL">Todos los días ({records.length})</option>
-              {dailySummaries.map((d) => (
-                <option key={d.dateKey} value={d.dateKey}>
-                  {d.dateKey} ({d.count})
-                </option>
-              ))}
-            </select>
-          </div>
+              Limpiar filtro ({selectedDay})
+            </button>
+          )}
         </div>
       </div>
 
@@ -1059,6 +1145,19 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                             <div className="inline-flex items-center gap-1.5">
                               <button
                                 type="button"
+                                onClick={() =>
+                                  setSelectedDay((prev) => (prev === day.dateKey ? 'ALL' : day.dateKey))
+                                }
+                                className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold cursor-pointer ${
+                                  selectedDay === day.dateKey
+                                    ? 'bg-violet-600 border-violet-600 text-white'
+                                    : 'bg-violet-50 hover:bg-violet-100 border-violet-200 text-violet-800'
+                                }`}
+                              >
+                                {selectedDay === day.dateKey ? 'Filtrando' : 'Seleccionar'}
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => downloadExcelForDay(day.dateKey, records)}
                                 className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold cursor-pointer"
                               >
@@ -1080,76 +1179,212 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                 </div>
               </div>
 
-              <div className="bg-white/95 border border-violet-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
-                <h3 className="font-display text-xl font-bold text-[#2e2344]">
-                  Huella 1 · Uso de estrategias (SÍ / A VECES / NO)
-                </h3>
-                <div className="space-y-4">
-                  {stats.h1Stats.map((item) => (
-                    <div key={item.label} className="space-y-1.5">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-sm">
-                        <span className="font-semibold text-[#2e2344]">
-                          {item.emoji} {item.label}
-                        </span>
-                        <span className="font-mono-tabular text-xs text-slate-600 shrink-0">
-                          SÍ: {item.siPct}% ({item.si}) · A VECES: {item.avecesPct}% ({item.aveces}) · NO: {item.noPct}% ({item.no})
-                        </span>
-                      </div>
-                      <div className="h-4 rounded-full bg-slate-100 overflow-hidden flex">
-                        <div
-                          style={{ width: `${item.siPct}%` }}
-                          className="bg-emerald-500 h-full"
-                          title={`SÍ: ${item.siPct}%`}
-                        />
-                        <div
-                          style={{ width: `${item.avecesPct}%` }}
-                          className="bg-amber-400 h-full"
-                          title={`A VECES: ${item.avecesPct}%`}
-                        />
-                        <div
-                          style={{ width: `${item.noPct}%` }}
-                          className="bg-rose-400 h-full"
-                          title={`NO: ${item.noPct}%`}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                {[
-                  { title: 'Huella 2 · Estrategia favorita', data: stats.favDist, bar: 'bg-sky-500' },
-                  { title: 'Huella 4 · ¿Cómo se sintieron?', data: stats.feelingDist, bar: 'bg-pink-500' },
-                  { title: 'Huella 5 · Obstáculos del camino', data: stats.obstacleDist, bar: 'bg-teal-500' },
-                  { title: 'Huella 6 · Lo que quieren mejorar', data: stats.improveDist, bar: 'bg-indigo-500' },
-                ].map((chart) => (
-                  <div
-                    key={chart.title}
-                    className="bg-white/95 border border-violet-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4"
+              {filteredRecords.length === 0 ? (
+                <div className="bg-white/95 border border-violet-200 rounded-3xl p-8 text-center space-y-3">
+                  <p className="font-display text-lg font-bold text-[#2e2344]">
+                    No hay registros para el día o filtro seleccionado
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedDay('ALL');
+                      setSearchCode('');
+                    }}
+                    className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold cursor-pointer"
                   >
-                    <h3 className="font-display text-lg font-bold text-[#2e2344]">{chart.title}</h3>
-                    <div className="space-y-3">
-                      {chart.data.map((row) => (
-                        <div key={row.label} className="space-y-1">
-                          <div className="flex justify-between gap-2 text-sm">
-                            <span className="font-medium text-slate-800">{row.label}</span>
-                            <span className="font-mono-tabular text-xs font-bold text-slate-600 shrink-0">
-                              {row.count} ({row.pct}%)
+                    Mostrar todos los días
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="bg-white/95 border border-violet-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
+                    <h3 className="font-display text-xl font-bold text-[#2e2344]">
+                      Huella 1 · Uso de estrategias (SÍ / A VECES / NO)
+                    </h3>
+                    <div className="space-y-4">
+                      {stats.h1Stats.map((item) => (
+                        <div key={item.label} className="space-y-1.5">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-sm">
+                            <span className="font-semibold text-[#2e2344]">
+                              {item.emoji} {item.label}
+                            </span>
+                            <span className="font-mono-tabular text-xs text-slate-600 shrink-0">
+                              SÍ: {item.siPct}% ({item.si}) · A VECES: {item.avecesPct}% ({item.aveces}) · NO: {item.noPct}% ({item.no})
                             </span>
                           </div>
-                          <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
+                          <div className="h-4 rounded-full bg-slate-100 overflow-hidden flex">
                             <div
-                              style={{ width: `${Math.max(row.pct, 2)}%` }}
-                              className={`h-full rounded-full ${chart.bar}`}
+                              style={{ width: `${item.siPct}%` }}
+                              className="bg-emerald-500 h-full"
+                              title={`SÍ: ${item.siPct}%`}
+                            />
+                            <div
+                              style={{ width: `${item.avecesPct}%` }}
+                              className="bg-amber-400 h-full"
+                              title={`A VECES: ${item.avecesPct}%`}
+                            />
+                            <div
+                              style={{ width: `${item.noPct}%` }}
+                              className="bg-rose-400 h-full"
+                              title={`NO: ${item.noPct}%`}
                             />
                           </div>
                         </div>
                       ))}
                     </div>
                   </div>
-                ))}
-              </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    {[
+                      {
+                        title: 'Huella 2 · Estrategia favorita',
+                        data: stats.favDist,
+                        bar: 'bg-sky-500',
+                        otherLabel: '',
+                        otherRecords: [] as { id: string; participantCode: string; dateKey: string; text: string }[],
+                      },
+                      {
+                        title: 'Huella 4 · ¿Cómo se sintieron?',
+                        data: stats.feelingDist,
+                        bar: 'bg-pink-500',
+                        otherLabel: 'Respuestas escritas en «Otra cosa»:',
+                        otherRecords: stats.huella4OtherResponses.map((r) => ({
+                          id: r.id,
+                          participantCode: r.participantCode,
+                          dateKey: r.dateKey,
+                          text: r.huella4Other,
+                        })),
+                      },
+                      {
+                        title: 'Huella 5 · Obstáculos del camino',
+                        data: stats.obstacleDist,
+                        bar: 'bg-teal-500',
+                        otherLabel: 'Respuestas escritas en «Otra dificultad»:',
+                        otherRecords: stats.huella5OtherResponses.map((r) => ({
+                          id: r.id,
+                          participantCode: r.participantCode,
+                          dateKey: r.dateKey,
+                          text: r.huella5Other,
+                        })),
+                      },
+                      {
+                        title: 'Huella 6 · Lo que quieren mejorar',
+                        data: stats.improveDist,
+                        bar: 'bg-indigo-500',
+                        otherLabel: 'Respuestas escritas en «Otra»:',
+                        otherRecords: stats.huella6OtherResponses.map((r) => ({
+                          id: r.id,
+                          participantCode: r.participantCode,
+                          dateKey: r.dateKey,
+                          text: r.huella6Other,
+                        })),
+                      },
+                    ].map((chart) => (
+                      <div
+                        key={chart.title}
+                        className="bg-white/95 border border-violet-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4"
+                      >
+                        <h3 className="font-display text-lg font-bold text-[#2e2344]">{chart.title}</h3>
+                        <div className="space-y-3">
+                          {chart.data.map((row) => (
+                            <div key={row.label} className="space-y-1">
+                              <div className="flex justify-between gap-2 text-sm">
+                                <span className="font-medium text-slate-800">{row.label}</span>
+                                <span className="font-mono-tabular text-xs font-bold text-slate-600 shrink-0">
+                                  {row.count} ({row.pct}%)
+                                </span>
+                              </div>
+                              <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
+                                <div
+                                  style={{ width: `${Math.max(row.pct, 2)}%` }}
+                                  className={`h-full rounded-full ${chart.bar}`}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {chart.otherRecords.length > 0 && (
+                          <div className="pt-3 border-t border-slate-100 space-y-2">
+                            <p className="text-xs font-bold text-violet-800">{chart.otherLabel}</p>
+                            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                              {chart.otherRecords.map((item) => (
+                                <div
+                                  key={item.id}
+                                  className="rounded-2xl bg-violet-50/70 border border-violet-100 px-3 py-2 text-xs"
+                                >
+                                  <div className="flex items-center justify-between gap-2 font-bold text-[#2e2344]">
+                                    <span>{item.participantCode}</span>
+                                    <span className="font-mono-tabular text-slate-500">{item.dateKey}</span>
+                                  </div>
+                                  <p className="mt-1 text-slate-700 whitespace-pre-line">{item.text}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Huella 3 & Huella 7 Open-ended Written Responses */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    <div className="bg-white/95 border border-amber-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="font-display text-lg font-bold text-[#2e2344]">
+                          Huella 3 · ¿Cuándo la utilicé? (Respuestas escritas)
+                        </h3>
+                        <span className="text-xs font-mono-tabular font-bold text-amber-800">
+                          {stats.huella3Responses.length} respuesta(s)
+                        </span>
+                      </div>
+                      <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                        {stats.huella3Responses.map((r) => (
+                          <div
+                            key={r.id}
+                            className="rounded-2xl bg-amber-50/80 border border-amber-200 p-3.5 text-sm"
+                          >
+                            <div className="flex items-center justify-between gap-2 text-xs font-bold text-amber-900">
+                              <span>{r.participantCode}</span>
+                              <span className="font-mono-tabular text-slate-600">{r.dateKey}</span>
+                            </div>
+                            <p className="mt-1.5 text-slate-800 whitespace-pre-line leading-relaxed">
+                              {r.huella3Moment}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="bg-white/95 border border-orange-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="font-display text-lg font-bold text-[#2e2344]">
+                          Huella 7 · Mi próximo compromiso (Respuestas escritas)
+                        </h3>
+                        <span className="text-xs font-mono-tabular font-bold text-orange-800">
+                          {stats.huella7Responses.length} respuesta(s)
+                        </span>
+                      </div>
+                      <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                        {stats.huella7Responses.map((r) => (
+                          <div
+                            key={r.id}
+                            className="rounded-2xl bg-orange-50/80 border border-orange-200 p-3.5 text-sm"
+                          >
+                            <div className="flex items-center justify-between gap-2 text-xs font-bold text-orange-900">
+                              <span>{r.participantCode}</span>
+                              <span className="font-mono-tabular text-slate-600">{r.dateKey}</span>
+                            </div>
+                            <p className="mt-1.5 text-slate-800 whitespace-pre-line leading-relaxed">
+                              {r.huella7Commitment}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>
@@ -1256,24 +1491,30 @@ export function FacilitatorPanel({ onExitPanel }: FacilitatorPanelProps) {
                       </div>
                       <div className="bg-pink-50/70 border border-pink-100 rounded-2xl p-3.5">
                         <p className="text-xs font-bold text-pink-800">Huella 4 · ¿Cómo se sintió?</p>
-                        <p className="mt-1 text-slate-800">
-                          {r.huella4Feeling}
-                          {r.huella4Other ? ` — "${r.huella4Other}"` : ''}
-                        </p>
+                        <p className="mt-1 text-slate-800">{r.huella4Feeling}</p>
+                        {r.huella4Other && (
+                          <p className="mt-1.5 text-xs text-pink-900 bg-white/80 border border-pink-200 rounded-xl px-2.5 py-1.5 whitespace-pre-line">
+                            <span className="font-bold">Otro (escrito):</span> {r.huella4Other}
+                          </p>
+                        )}
                       </div>
                       <div className="bg-teal-50/70 border border-teal-100 rounded-2xl p-3.5">
                         <p className="text-xs font-bold text-teal-800">Huella 5 · Obstáculos</p>
-                        <p className="mt-1 text-slate-800">
-                          {r.huella5Obstacle}
-                          {r.huella5Other ? ` — "${r.huella5Other}"` : ''}
-                        </p>
+                        <p className="mt-1 text-slate-800">{r.huella5Obstacle}</p>
+                        {r.huella5Other && (
+                          <p className="mt-1.5 text-xs text-teal-900 bg-white/80 border border-teal-200 rounded-xl px-2.5 py-1.5 whitespace-pre-line">
+                            <span className="font-bold">Otro (escrito):</span> {r.huella5Other}
+                          </p>
+                        )}
                       </div>
                       <div className="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-3.5">
                         <p className="text-xs font-bold text-indigo-800">Huella 6 · Qué quiere mejorar</p>
-                        <p className="mt-1 text-slate-800">
-                          {r.huella6Improve.join(', ')}
-                          {r.huella6Other ? ` — "${r.huella6Other}"` : ''}
-                        </p>
+                        <p className="mt-1 text-slate-800">{r.huella6Improve.join(', ')}</p>
+                        {r.huella6Other && (
+                          <p className="mt-1.5 text-xs text-indigo-900 bg-white/80 border border-indigo-200 rounded-xl px-2.5 py-1.5 whitespace-pre-line">
+                            <span className="font-bold">Otro (escrito):</span> {r.huella6Other}
+                          </p>
+                        )}
                       </div>
                       <div className="bg-orange-50/70 border border-orange-100 rounded-2xl p-3.5">
                         <p className="text-xs font-bold text-orange-800">Huella 7 · Próximo compromiso (Abierta)</p>
